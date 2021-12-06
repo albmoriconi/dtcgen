@@ -2,6 +2,7 @@ import csv
 
 import click
 import graphviz
+import numpy as np
 from nyoka import skl_to_pmml
 from sklearn import tree, pipeline, ensemble, model_selection, datasets
 
@@ -69,8 +70,8 @@ def csv_command(ctx, infile):
 def train_split(X, Y, train_size, out_file, infile=None):
     if train_size < 1.0:
         X_train, X_test, Y_train, Y_test = model_selection.train_test_split(X, Y, train_size=train_size)
-        XY_train = [X_train[i] + [Y_train[i]] for i in range(len(X_train))]
-        XY_test = [X_test[i] + [Y_test[i]] for i in range(len(X_test))]
+        XY_train = [np.append(X_train[i], Y_train[i]) for i in range(len(X_train))]
+        XY_test = [np.append(X_test[i], Y_test[i]) for i in range(len(X_test))]
         write_csv(XY_train, f'{out_file}_train.csv')
         write_csv(XY_test, f'{out_file}_test.csv')
     else:
