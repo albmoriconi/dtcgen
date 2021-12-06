@@ -1,11 +1,9 @@
 import csv
-import random
-import sys
 
 import click
 import graphviz
 from nyoka import skl_to_pmml
-from sklearn import tree, pipeline, ensemble, model_selection
+from sklearn import tree, pipeline, ensemble, model_selection, datasets
 
 
 @click.group()
@@ -15,7 +13,7 @@ from sklearn import tree, pipeline, ensemble, model_selection
 @click.option('-t', '--train-size', default=0.8, show_default=True, help='Fraction of the dataset to use for model training')
 @click.pass_context
 def main(ctx, max_depth, n_estimators, out_file, train_size):
-    '''Decision tree ensembles generator.'''
+    """Decision tree ensembles generator."""
     ctx.obj['MAX_DEPTH'] = max_depth if max_depth != 0 else None
     ctx.obj['N_ESTIMATORS'] = n_estimators
     ctx.obj['OUT_FILE'] = out_file
@@ -28,14 +26,21 @@ def main(ctx, max_depth, n_estimators, out_file, train_size):
 @click.option('-s', '--n-samples', type=int, required=True, help='Number of samples')
 @click.pass_context
 def random_command(ctx, n_classes, n_features, n_samples):
-    '''Generate a random decision tree ensemble.'''
+    """Generate a random decision tree ensemble."""
     max_depth = ctx.obj['MAX_DEPTH']
     n_estimators = ctx.obj['N_ESTIMATORS']
     out_file = ctx.obj['OUT_FILE']
     train_size = ctx.obj['TRAIN_SIZE']
 
-    X = [[random.random() for _ in range(n_features)] for _ in range(n_samples)]   
-    Y = random.choices(range(n_classes), k=n_samples)
+    X, Y = datasets.make_classification(
+        n_samples=n_samples,
+        n_features=n_features,
+        n_classes=n_classes,
+        n_informative=n_features,
+        n_repeated=0,
+        n_redundant=0,
+        n_clusters_per_class=1
+    )
     X_train, X_test, Y_train, Y_test = train_split(X, Y, train_size, out_file)
 
     clf = dtcgen(X_train, Y_train, max_depth, n_estimators, out_file)
@@ -46,9 +51,9 @@ def random_command(ctx, n_classes, n_features, n_samples):
 @click.argument('infile', type=click.Path(exists=True, dir_okay=False))
 @click.pass_context
 def csv_command(ctx, infile):
-    '''Generate a decision tree ensemble from CSV data.
+    """Generate a decision tree ensemble from CSV data.
 
-    INFILE is the name of the input data.'''
+    INFILE is the name of the input data."""
     max_depth = ctx.obj['MAX_DEPTH']
     n_estimators = ctx.obj['N_ESTIMATORS']
     out_file = ctx.obj['OUT_FILE']
@@ -81,7 +86,7 @@ def train_split(X, Y, train_size, out_file, infile=None):
 
 
 def dtcgen(X_train, Y_train, max_depth, n_estimators, out_file):
-    '''Generation function for decision tree ensembles.'''
+    """Generation function for decision tree ensembles."""
     features_names = [f'feat_{i}' for i in range(len(X_train[0]))]
 
     if n_estimators <= 1:
@@ -102,7 +107,7 @@ def dtcgen(X_train, Y_train, max_depth, n_estimators, out_file):
 
 
 def print_accuracy(clf, X_test, Y_test):
-    '''Print classifier accuracy.'''
+    """Print classifier accuracy."""
     c_ans = 0
     for pred, ans in zip(clf.predict(X_test), Y_test):
         if pred == ans:
@@ -111,7 +116,7 @@ def print_accuracy(clf, X_test, Y_test):
 
 
 def draw_graph(clf, out_file, n):
-    '''Export graph for classifier.'''
+    """Export graph for classifier."""
     dot_data = tree.export_graphviz(clf, filled=True, rounded=True) 
     graph = graphviz.Source(dot_data)
     filename = f'{out_file}.gv' if n is None else f'{out_file}_{n}.gv'
@@ -119,7 +124,7 @@ def draw_graph(clf, out_file, n):
 
 
 def read_csv(filename):
-    '''Read CSV dataset from file'''
+    """Read CSV dataset from file."""
     X = []
     Y = []
     with open(filename) as csv_file:
@@ -131,7 +136,7 @@ def read_csv(filename):
 
 
 def write_csv(data, filename):
-    '''Write CSV dataset to file.'''
+    """Write CSV dataset to file."""
     with open(filename, 'w') as csv_file:
         csv_writer = csv.writer(csv_file)
         csv_writer.writerows(data)
