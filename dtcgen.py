@@ -42,16 +42,23 @@ def random_command(ctx, n_classes, n_features, n_samples):
         n_redundant=0,
         n_clusters_per_class=1
     )
-    X_train, X_test, Y_train, Y_test = train_split(X, Y, train_size, out_file)
+    feat_names = [f'feat_{i}' for i in range(n_features)]
+    class_names = [f'class_{i}' for i in range(n_classes)]
+    Y = [class_names[el] for el in Y]
+    Y_one_hot = to_one_hot(Y, class_names)
+    X_train, X_test, Y_train, Y_test = train_split(X, Y_one_hot, feat_names, class_names, train_size, out_file)
 
-    clf = dtcgen(X_train, Y_train, max_depth, n_estimators, out_file)
-    print_accuracy(clf, X_test, Y_test)
+    Y_train_target = to_target(Y_train, class_names)
+    Y_test_target = to_target(Y_test, class_names)
+    clf = dtcgen(X_train, Y_train_target, feat_names, class_names, max_depth, n_estimators, out_file)
+    print_accuracy(clf, X_test, Y_test_target)
 
 
 @main.command('csv')
 @click.argument('infile', type=click.Path(exists=True, dir_okay=False))
+@click.option('-c', '--n-classes', type=int, required=True, help='Number of classes')
 @click.pass_context
-def csv_command(ctx, infile):
+def csv_command(ctx, n_classes, infile):
     """Generate a decision tree ensemble from CSV data.
 
     INFILE is the name of the input data."""
@@ -60,20 +67,22 @@ def csv_command(ctx, infile):
     out_file = ctx.obj['OUT_FILE']
     train_size = ctx.obj['TRAIN_SIZE']
 
-    X, Y = read_csv(infile)
-    X_train, X_test, Y_train, Y_test = train_split(X, Y, train_size, out_file, infile)
+    X, Y, feat_names, class_names = read_csv(infile, n_classes)
+    X_train, X_test, Y_train, Y_test = train_split(X, Y, feat_names, class_names, train_size, out_file, infile)
 
-    clf = dtcgen(X_train, Y_train, max_depth, n_estimators, out_file)
-    print_accuracy(clf, X_test, Y_test)
+    Y_train_target = to_target(Y_train, class_names)
+    Y_test_target = to_target(Y_test, class_names)
+    clf = dtcgen(X_train, Y_train_target, feat_names, class_names, max_depth, n_estimators, out_file)
+    print_accuracy(clf, X_test, Y_test_target)
 
 
-def train_split(X, Y, train_size, out_file, infile=None):
+def train_split(X, Y, feat_names, class_names, train_size, out_file, infile=None):
     if train_size < 1.0:
         X_train, X_test, Y_train, Y_test = model_selection.train_test_split(X, Y, train_size=train_size)
         XY_train = [np.append(X_train[i], Y_train[i]) for i in range(len(X_train))]
         XY_test = [np.append(X_test[i], Y_test[i]) for i in range(len(X_test))]
-        write_csv(XY_train, f'{out_file}_train.csv')
-        write_csv(XY_test, f'{out_file}_test.csv')
+        write_csv(XY_train, feat_names, class_names, f'{out_file}_train.csv')
+        write_csv(XY_test, feat_names, class_names, f'{out_file}_test.csv')
     else:
         X_train = X
         Y_train = Y
@@ -86,25 +95,39 @@ def train_split(X, Y, train_size, out_file, infile=None):
     return X_train, X_test, Y_train, Y_test
 
 
-def dtcgen(X_train, Y_train, max_depth, n_estimators, out_file):
+def dtcgen(X_train, Y_train, feat_names, class_names, max_depth, n_estimators, out_file):
     """Generation function for decision tree ensembles."""
-    features_names = [f'feat_{i}' for i in range(len(X_train[0]))]
-
     if n_estimators <= 1:
         clf = tree.DecisionTreeClassifier(max_depth=max_depth)
         clf = clf.fit(X_train, Y_train)
-        draw_graph(clf, out_file, None)
+        draw_graph(clf, feat_names, class_names, out_file, None)
     else:
         clf = ensemble.RandomForestClassifier(n_estimators=n_estimators, max_depth=max_depth)
         clf = clf.fit(list(X_train), list(Y_train))
 
         for i in range(len(clf.estimators_)):
-            draw_graph(clf.estimators_[i], out_file, i)
+            draw_graph(clf.estimators_[i], feat_names, class_names, out_file, i)
 
     pipe = pipeline.Pipeline([('clf', clf)])
-    skl_to_pmml(pipeline=pipe, col_names=features_names, pmml_f_name=out_file)
+    skl_to_pmml(pipeline=pipe, col_names=feat_names, pmml_f_name=out_file)
 
     return clf
+
+
+def to_target(Y, class_names):
+    """Convert classes from one-hot to target column"""
+    return [class_names[cl.index('1')] for cl in Y]
+
+
+def to_one_hot(Y, class_names):
+    """Convert classes from target column to one-hot"""
+    Y_one_hot = []
+    n_classes = len(class_names)
+    for el in Y:
+        next_el = ['0'] * n_classes
+        next_el[class_names.index(el)] = '1'
+        Y_one_hot.append(next_el)
+    return Y_one_hot
 
 
 def print_accuracy(clf, X_test, Y_test):
@@ -116,30 +139,34 @@ def print_accuracy(clf, X_test, Y_test):
     print(f"Classifier accuracy: {c_ans / len(Y_test)}")
 
 
-def draw_graph(clf, out_file, n):
+def draw_graph(clf, feat_names, class_names, out_file, n):
     """Export graph for classifier."""
-    dot_data = tree.export_graphviz(clf, filled=True, rounded=True) 
+    dot_data = tree.export_graphviz(clf, feature_names=feat_names, class_names=class_names, filled=True, rounded=True) 
     graph = graphviz.Source(dot_data)
     filename = f'{out_file}.gv' if n is None else f'{out_file}_{n}.gv'
     graph.render(directory=f'{out_file}_export', filename=filename)
 
 
-def read_csv(filename):
+def read_csv(filename, n_classes):
     """Read CSV dataset from file."""
     X = []
     Y = []
     with open(filename) as csv_file:
-        csv_data = csv.reader(csv_file)
+        csv_data = csv.reader(csv_file, delimiter=';')
+        intestation = next(csv_data)
+        feat_names = intestation[:-n_classes]
+        class_names = intestation[-n_classes:]
         for row in csv_data:
-            X.append(row[:-1])
-            Y.append(row[-1])
-    return X, Y
+            X.append(row[:-n_classes])
+            Y.append(row[-n_classes:])
+    return X, Y, feat_names, class_names
 
 
-def write_csv(data, filename):
+def write_csv(data, feat_names, class_names, filename):
     """Write CSV dataset to file."""
     with open(filename, 'w') as csv_file:
         csv_writer = csv.writer(csv_file)
+        csv_writer.writerow(feat_names + class_names)
         csv_writer.writerows(data)
 
 
